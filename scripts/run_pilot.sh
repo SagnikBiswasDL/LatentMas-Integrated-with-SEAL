@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 
 export HF_HOME="${HF_HOME:-/workspace/hf_cache}"
 export TRANSFORMERS_CACHE="$HF_HOME"
