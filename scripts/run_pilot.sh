@@ -56,7 +56,13 @@ else
   BACKEND_ARGS=(--device cuda:0)
 fi
 
-if [[ ! -f "$VECTOR_PATH" ]]; then
+if [[ -f "$VECTOR_PATH" ]]; then
+  echo "=== SEAL vector already exists — skipping extraction ==="
+  echo "    ($VECTOR_PATH)"
+elif [[ "${SKIP_VECTOR_EXTRACTION:-0}" == "1" ]]; then
+  echo "=== SKIP_VECTOR_EXTRACTION=1 but vector missing: $VECTOR_PATH ==="
+  exit 1
+else
   echo "=== Extracting SEAL vector ==="
   $PYTHON scripts/extract_seal_vector.py \
     --model_name "$MODEL" \
@@ -65,6 +71,8 @@ if [[ ! -f "$VECTOR_PATH" ]]; then
     --max_scan 300 \
     --output "$VECTOR_PATH"
 fi
+
+echo "=== Eval only from here (~1–2 hrs on 1 GPU) ==="
 
 echo "=== LatentMAS baseline (no SEAL) ==="
 $PYTHON run.py --method latent_mas "${COMMON_ARGS[@]}" "${BACKEND_ARGS[@]}" \
