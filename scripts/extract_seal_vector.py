@@ -25,8 +25,9 @@ from seal.vector_generation import compute_steering_vector, save_vector
 from utils import auto_device, extract_gold, extract_gsm8k_answer, normalize_answer, set_seed
 
 
-def render_prompt(tokenizer, question: str) -> str:
-    messages = build_agent_messages_single_agent(question=question, args=argparse.Namespace(task="gsm8k"))
+def render_prompt(tokenizer, question: str, model_name: str = "Qwen/Qwen3-14B") -> str:
+    args = argparse.Namespace(task="gsm8k", method="baseline", model_name=model_name)
+    messages = build_agent_messages_single_agent(question=question, args=args)
     return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
 
@@ -99,7 +100,7 @@ def main() -> None:
         if len(execution_vecs) >= correct_target and len(reflection_vecs) + len(transition_vecs) >= incorrect_target:
             break
 
-        prompt = render_prompt(tokenizer, item["question"])
+        prompt = render_prompt(tokenizer, item["question"], args.model_name)
         response = generate_trace(model, tokenizer, prompt, args.max_new_tokens)
         pred = normalize_answer(extract_gsm8k_answer(response))
         gold = normalize_answer(extract_gold(item["solution"]))
