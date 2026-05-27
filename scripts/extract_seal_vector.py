@@ -78,7 +78,10 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
         torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-    ).to(device)
+        device_map="auto" if torch.cuda.is_available() else None,
+    )
+    if not torch.cuda.is_available():
+        model = model.to(device)
     model.eval()
 
     split_ids = paragraph_split_token_ids(tokenizer)

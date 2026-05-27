@@ -5,6 +5,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 
+# RunPod PyTorch 2.11+cu13 images often mismatch host driver 12.8 — fix if needed.
+if ! python3 -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+  echo "CUDA unavailable — running fix_runpod_cuda.sh"
+  bash "$ROOT/scripts/fix_runpod_cuda.sh"
+fi
+
 export HF_HOME="${HF_HOME:-/workspace/hf_cache}"
 export TRANSFORMERS_CACHE="$HF_HOME"
 export HF_DATASETS_CACHE="$HF_HOME"
