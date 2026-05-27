@@ -22,9 +22,19 @@ def _ensure_pad_token(tokenizer: AutoTokenizer) -> None:
             tokenizer.add_special_tokens({"pad_token": "<pad>"})
 
 
-def _past_length(past_key_values: Optional[Tuple]) -> int:
+try:
+    from transformers.cache_utils import Cache
+except ImportError:
+    Cache = None
+
+
+def _past_length(past_key_values) -> int:
     if not past_key_values:
         return 0
+    if Cache is not None and isinstance(past_key_values, Cache):
+        return past_key_values.get_seq_length()
+    if hasattr(past_key_values, "get_seq_length"):
+        return past_key_values.get_seq_length()
     k = past_key_values[0][0]
     return k.shape[-2]
 
