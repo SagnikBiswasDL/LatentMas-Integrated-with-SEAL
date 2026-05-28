@@ -20,6 +20,8 @@ def _ensure_pad_token(tokenizer: AutoTokenizer) -> None:
             tokenizer.pad_token = tokenizer.eos_token
         else:
             tokenizer.add_special_tokens({"pad_token": "<pad>"})
+    # Batched decoder-only generation must use left padding.
+    tokenizer.padding_side = "left"
 
 
 try:
