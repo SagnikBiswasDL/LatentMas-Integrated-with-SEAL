@@ -27,6 +27,18 @@ VECTOR_PATH="${VECTOR_PATH:-artifacts/seal_vectors/qwen3-14b/layer_${SEAL_LAYER}
 
 mkdir -p results/pilot
 
+if [[ -z "${TMUX:-}" && "${ALLOW_NO_TMUX:-0}" != "1" ]]; then
+  echo "ERROR: Not inside tmux — SSH/WiFi drops will kill this job."
+  echo ""
+  echo "  tmux new -s pilot"
+  echo "  cd $ROOT && bash scripts/run_pilot.sh"
+  echo "  # Detach: Ctrl+B, then D"
+  echo ""
+  echo "Reattach later: tmux attach -t pilot"
+  echo "Override (not recommended): ALLOW_NO_TMUX=1 bash scripts/run_pilot.sh"
+  exit 1
+fi
+
 GPU_COUNT=$(nvidia-smi -L | wc -l | tr -d ' ')
 echo "Detected ${GPU_COUNT} GPU(s)"
 
