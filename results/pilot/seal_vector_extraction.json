@@ -1,0 +1,13 @@
+{
+  "vector_path": "artifacts/seal_vectors/qwen3-14b/layer_28_steervec.pt",
+  "layer": 28,
+  "execution_steps": 716,
+  "reflection_steps": 473,
+  "transition_steps": 7,
+  "traces": 146,
+  "max_scan": 300,
+  "n_per_class": 80,
+  "model": "Qwen/Qwen3-14B",
+  "task": "gsm8k",
+  "note": "Extraction stopped early once enough traces were collected; vector file stored on RunPod pod, not in git."
+}

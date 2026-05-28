@@ -99,6 +99,17 @@ Explore community-driven extensions that expand LatentMAS into new domains, arch
 
 **If your work extends LatentMAS, feel free to open a PR and we’ll feature it here! 🚀**
 
+## SEAL integration (pilot)
+
+This fork integrates [SEAL](https://github.com/VITA-Group/SEAL) steering into LatentMAS latent forward passes. GSM8K pilot (100 samples, Qwen3-14B, 2026-05-28):
+
+| Run | Accuracy |
+|-----|----------|
+| LatentMAS | 62% (62/100) |
+| LatentMAS + SEAL | 63% (63/100) |
+
+**Δ +1 question** — integration works; no meaningful gain at this scale. Details: [`docs/pilot_report.md`](docs/pilot_report.md) · [`results/pilot/summary.json`](results/pilot/summary.json)
+
 
 ## 📊 Experiments Overview
 
