@@ -13,6 +13,8 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 
+from ._cache_utils import layer_kv_list
+
 SYSTEM_MESSAGE = "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."
 
 
@@ -51,24 +53,12 @@ def last_token_kv(model, input_ids: torch.Tensor) -> Tuple[List[torch.Tensor], L
     Returns two lists of tensors, each [H_kv, D_h] (float32, on CPU).
     """
     out = model(input_ids=input_ids, use_cache=True, return_dict=True)
-    past = out.past_key_values
-
-    try:
-        from transformers.cache_utils import Cache
-    except ImportError:  # pragma: no cover
-        Cache = None
 
     keys: List[torch.Tensor] = []
     vals: List[torch.Tensor] = []
-    if Cache is not None and isinstance(past, Cache):
-        n_layers = len(past.key_cache)
-        for l in range(n_layers):
-            keys.append(past.key_cache[l][0, :, -1, :].float().cpu())
-            vals.append(past.value_cache[l][0, :, -1, :].float().cpu())
-    else:
-        for layer in past:
-            keys.append(layer[0][0, :, -1, :].float().cpu())
-            vals.append(layer[1][0, :, -1, :].float().cpu())
+    for k, v in layer_kv_list(out.past_key_values):
+        keys.append(k[0, :, -1, :].float().cpu())
+        vals.append(v[0, :, -1, :].float().cpu())
     return keys, vals
 
 

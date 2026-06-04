@@ -26,6 +26,41 @@ L, B, H, S, D = 4, 2, 3, 10, 8
 C_K, C_V, LAST_N = 0.5, 4.0, 3
 
 
+class _FakeLayer:
+    """Mimics newer transformers DynamicLayer (.keys / .values)."""
+
+    def __init__(self, k, v):
+        self.keys = k
+        self.values = v
+
+
+class _FakeDynamicCache:
+    """Mimics newer transformers DynamicCache (.layers[i].keys/.values, no key_cache)."""
+
+    def __init__(self, kv):
+        self.layers = [_FakeLayer(k, v) for k, v in kv]
+
+
+def _check(past_obj, key, val, s_k, s_v, label) -> bool:
+    target = list(range(S - LAST_N, S))
+    ok = True
+    layers = past_obj.layers if hasattr(past_obj, "layers") else past_obj
+    for l in range(L):
+        got_k = layers[l].keys if hasattr(past_obj, "layers") else past_obj[l][0]
+        got_v = layers[l].values if hasattr(past_obj, "layers") else past_obj[l][1]
+        exp_k = key[l].clone()
+        exp_v = val[l].clone()
+        exp_k[:, :, target, :] += C_K * s_k[l][None, :, None, :]
+        exp_v[:, :, target, :] += C_V * s_v[l][None, :, None, :]
+        if not torch.allclose(got_k, exp_k, atol=1e-5):
+            ok = False
+            print(f"[FAIL:{label}] layer {l} keys mismatch")
+        if not torch.allclose(got_v, exp_v, atol=1e-5):
+            ok = False
+            print(f"[FAIL:{label}] layer {l} values mismatch")
+    return ok
+
+
 def main() -> None:
     torch.manual_seed(0)
     key = [torch.randn(B, H, S, D) for _ in range(L)]
@@ -38,23 +73,20 @@ def main() -> None:
     torch.save({"k": s_k, "v": s_v}, tmp)
 
     cs = CacheSteering(vector_path=tmp, c_k=C_K, c_v=C_V, positions="last_n", last_n=LAST_N)
-    cs.apply(past)
 
+    # Case 1: legacy tuple cache.
+    cs.apply(past)
+    # Case 2: newer DynamicCache-style object (.layers[i].keys/.values).
+    fake = _FakeDynamicCache([(key[l].clone(), val[l].clone()) for l in range(L)])
+    cs.apply(fake)
+
+    ok = _check(past, key, val, s_k, s_v, "legacy")
+    ok = _check(fake, key, val, s_k, s_v, "dynamic") and ok
+
+    # Non-target positions must be untouched (checked on the legacy cache).
     target = list(range(S - LAST_N, S))
-    ok = True
+    untouched = [p for p in range(S) if p not in target]
     for l in range(L):
-        exp_k = key[l].clone()
-        exp_v = val[l].clone()
-        exp_k[:, :, target, :] += C_K * s_k[l][None, :, None, :]
-        exp_v[:, :, target, :] += C_V * s_v[l][None, :, None, :]
-        if not torch.allclose(past[l][0], exp_k, atol=1e-5):
-            ok = False
-            print(f"[FAIL] layer {l} keys mismatch")
-        if not torch.allclose(past[l][1], exp_v, atol=1e-5):
-            ok = False
-            print(f"[FAIL] layer {l} values mismatch")
-        # untouched positions must be identical to the original
-        untouched = [p for p in range(S) if p not in target]
         if not torch.allclose(past[l][0][:, :, untouched, :], key[l][:, :, untouched, :]):
             ok = False
             print(f"[FAIL] layer {l} non-target keys were modified")

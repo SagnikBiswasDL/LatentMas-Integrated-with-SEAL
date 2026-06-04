@@ -18,10 +18,7 @@ from typing import List, Optional, Sequence
 
 import torch
 
-try:
-    from transformers.cache_utils import Cache
-except ImportError:  # pragma: no cover
-    Cache = None
+from ._cache_utils import layer_kv_list
 
 
 class CacheSteering:
@@ -49,22 +46,6 @@ class CacheSteering:
         self.layers = list(layers) if layers is not None else None
         self.device = device
 
-    # --- cache accessors (support both DynamicCache and legacy tuples) ---
-    @staticmethod
-    def _is_cache_obj(past) -> bool:
-        return Cache is not None and isinstance(past, Cache)
-
-    def _num_layers(self, past) -> int:
-        if self._is_cache_obj(past):
-            return len(past.key_cache)
-        return len(past)
-
-    def _layer_kv(self, past, layer_idx: int):
-        if self._is_cache_obj(past):
-            return past.key_cache[layer_idx], past.value_cache[layer_idx]
-        layer = past[layer_idx]
-        return layer[0], layer[1]
-
     def _target_positions(self, seq_len: int) -> List[int]:
         if seq_len <= 0:
             return []
@@ -81,13 +62,14 @@ class CacheSteering:
         if past is None or (self.c_k == 0.0 and self.c_v == 0.0):
             return past
 
-        n_layers = self._num_layers(past)
+        kv = layer_kv_list(past)
+        n_layers = len(kv)
         layer_ids = self.layers if self.layers is not None else range(n_layers)
 
         for l in layer_ids:
             if l < 0 or l >= n_layers:
                 continue
-            k, v = self._layer_kv(past, l)
+            k, v = kv[l]
             if k is None or not torch.is_tensor(k) or k.numel() == 0:
                 continue
 
