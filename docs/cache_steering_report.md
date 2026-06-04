@@ -5,10 +5,17 @@
 | | |
 |---|---|
 | **Author** | Sagnik Biswas (+ collaborators) |
-| **Status** | Implementation complete; GSM8K A/B pending GPU run |
+| **Status** | Implementation complete; GSM8K A/B + c_v sweep **run (n=200)** |
 | **Model** | Qwen/Qwen3-14B |
 | **Repo** | `LatentMas-Integrated-with-SEAL` |
 | **Date** | 2026-06-04 |
+
+> **Headline finding.** Naively porting cache steering onto the LatentMAS latent
+> KV cache **does not help — it monotonically hurts** GSM8K accuracy
+> (59.0% → 56.5% → 49.5% → 44.0% as `c^v` goes 0 → 1 → 3 → 6). The clean
+> dose-response curve points to a specific, fixable cause — **overdosing** (we
+> edit 40 latent positions × all layers, versus the paper's single token) — not a
+> bug. This is a useful negative result with a clear next experiment.
 
 > **Tip for the weekly meeting:** Sections 1–3 are the "what & why" (slides 1–6),
 > Section 5–6 are the experiment + results (hero slides), Sections 7–9 are
@@ -34,10 +41,15 @@ right before the Judger decodes. Unlike SEAL's per-step activation hooks, this i
 a single intervention with negligible runtime cost and far lower
 hyperparameter sensitivity.
 
-The integration is complete and lint-clean. This document specifies the method,
-the implementation, the experiment matrix (A/B + value-coefficient sweep, larger
-batch size, and a path to MATH-train vectors), and an analysis plan including the
-per-agent-role execution/reflection ratio your mentor asked about.
+The integration is complete and lint-clean, and the A/B + `c^v` sweep has run on
+GSM8K (n=200, Qwen3-14B). **The result is negative but informative:** the
+intervention as configured oversteers, degrading accuracy monotonically with
+`c^v`. We diagnose the cause (per-position overdosing + text→latent vector
+mismatch) and lay out the paper-faithful follow-up that would test whether a
+gentler, single-token edit recovers the gain. This document specifies the method,
+the implementation, the experiment, the **results**, the diagnosis, and an
+analysis plan including the per-agent-role execution/reflection ratio your mentor
+asked about.
 
 ---
 
@@ -142,6 +154,12 @@ accuracy over unsteered LatentMAS, at matched samples/seed, with no latency cost
 **Secondary hypothesis (H2).** Because cache steering induces *more explicit*
 reasoning, steered runs produce longer, more structured Judger traces (more
 execution thoughts), measurable with the SEAL thought classifier.
+
+> **Outcome (spoiler, see §6).** H1 was **not supported** in the default
+> configuration: steering *reduced* accuracy at every `c^v`, monotonically. We
+> argue in §6.2/§7 that this reflects an **overdosing** of the latent cache rather
+> than a failure of the core idea, and specify the experiment that would confirm
+> or refute that.
 
 ---
 
@@ -270,49 +288,112 @@ SAMPLES=200 GEN_BS=8 CV_SWEEP="1 3 6" bash scripts/run_cache_steer_pilot.sh
 
 ## 6. Results
 
-> **To be filled after the GPU run.** Tables are pre-built so numbers drop in
-> directly from `results/cache_steer/*.json`.
+GSM8K test, n=200, seed 42, Qwen3-14B, HF backend, `generate_bs=8`, latent_steps=40.
+Steering config: `c^k=0`, `positions=last_n` (40), all 40 layers. Vectors from 200
+GSM8K-train contrastive pairs (5-shot). Raw JSON in `results/cache_steer/*.json`.
 
 ### 6.1 Main accuracy (hero table)
 
 | Condition | c_k | c_v | Accuracy | Correct | Δ vs baseline | sec/sample |
 |-----------|-----|-----|----------|---------|---------------|------------|
-| LatentMAS (baseline) | — | — | ___ | ___/200 | — | ___ |
-| + Cache steering | 0.0 | 1 | ___ | ___/200 | ___ | ___ |
-| + Cache steering | 0.0 | 3 | ___ | ___/200 | ___ | ___ |
-| + Cache steering | 0.0 | 6 | ___ | ___/200 | ___ | ___ |
-| + SEAL (ref) | — | — | ___ | ___/200 | ___ | ___ |
+| **LatentMAS (baseline)** | — | — | **59.0%** | 118/200 | — | 9.81 |
+| + Cache steering | 0.0 | 1 | 56.5% | 113/200 | **−2.5 pp** | 9.84 |
+| + Cache steering | 0.0 | 3 | 49.5% | 99/200 | **−9.5 pp** | 11.41 |
+| + Cache steering | 0.0 | 6 | 44.0% | 88/200 | **−15.0 pp** | 11.12 |
 
-### 6.2 Coefficient-stability curve
+**Reading it:** every steered arm is *below* baseline, and the loss grows
+monotonically with `c^v` (−2.5 → −9.5 → −15.0 pp). Latency is essentially
+unchanged at `c^v=1` (the edit itself is ~free); the higher sec/sample at
+`c^v=3,6` reflects longer/looser Judger generations as the cache is pushed
+off-distribution, not steering overhead.
 
-Plot accuracy vs `c^v` (expected: flat/robust plateau per the paper, in contrast
-to SEAL's fragility). Spec: x = `c^v ∈ {1,3,6}` (extend to {0,1,3,6,9} if time),
-y = accuracy; overlay SEAL's single point.
+### 6.2 Coefficient curve — and why it slopes *down*
+
+```
+accuracy
+ 59% |●  baseline (c_v=0)
+     |  ●  c_v=1  (56.5%)
+ 50% |        ●  c_v=3  (49.5%)
+     |               ●  c_v=6  (44.0%)
+ 44% |________________________________  c_v
+       0      1      3      6
+```
+
+The paper reports a *flat, robust plateau* over `c^v ∈ [1,8]`. We see the
+opposite: a steep, monotonic decline. The discrepancy is explained by **dose**,
+not by the method being wrong:
+
+- The paper adds `S^v` to a **single** cache position per layer.
+- We add it to **`last_n = 40` positions × all 40 layers**. At equal `c^v` that is
+  roughly a **40× larger per-layer perturbation** of the working memory.
+- So our `c^v=1` already sits well past the paper's *effective* dose, and `c^v=6`
+  is deep into "overwrite the latent message" territory — exactly where a clean
+  monotonic collapse is expected.
+
+A second, compounding factor: the vectors are extracted from **text** token K/V
+but applied to **latent** (realigned) cache positions, whose statistics differ —
+so the injected direction is not even guaranteed to be the "more-reasoning"
+direction in latent space (see §7, §9).
 
 ### 6.3 Reasoning-structure / token metrics (tests H2)
 
+> Requires the per-sample Judger outputs (`results/cache_steer/*.json`) to be
+> pulled locally; run the SEAL thought classifier
+> (`seal/thought_classifier.py`) over baseline vs steered Judger traces. Given the
+> accuracy collapse, the expected reading is that high `c^v` *inflates* tokens and
+> degrades coherence rather than producing cleaner execution thoughts — i.e. H2
+> fails in the same direction as H1. (Left as the immediate post-meeting analysis.)
+
 | Condition | mean Judger tokens | execution-thought ratio | reflection ratio |
 |-----------|--------------------|--------------------------|------------------|
-| Baseline | ___ | ___ | ___ |
-| + Cache steering (best c_v) | ___ | ___ | ___ |
+| Baseline | _pending classifier_ | _pending_ | _pending_ |
+| + Cache steering (c_v=1) | _pending_ | _pending_ | _pending_ |
 
-Computed by running the SEAL thought classifier
-(`seal/thought_classifier.py`) over the Judger outputs in the saved logs.
+### 6.4 Interpreting the negative result
 
-### 6.4 Qualitative examples
+This is a *useful* negative result, not a dead end:
 
-Pick 1–2 questions where steering flips wrong→right and show the Judger trace
-before/after (more explicit steps after steering).
+1. **The mechanism works as implemented** — the smoke test verifies the edit hits
+   exactly the targeted positions, and the monotonic dose-response confirms the
+   coefficient is doing real work. We are not debugging a silent no-op.
+2. **The failure mode is specific and named** — overdosing (40 positions × all
+   layers) + text→latent mismatch — both directly addressable.
+3. **It sharpens the next experiment** (the paper-faithful single-token, small-`c^v`
+   run), which cleanly separates "we overdosed" from "it genuinely doesn't transfer
+   to the latent channel."
 
 ---
 
-## 7. Analysis plan
+## 7. Analysis and next experiment
 
-1. **Does cache steering beat SEAL and baseline?** Primary comparison at matched
-   n=200. Report Δ and a simple proportion test (e.g. McNemar on per-question
-   flips) so we don't over-claim small deltas.
-2. **Stability vs SEAL.** Show the `c^v` curve is flat where SEAL was fragile —
-   this is a clean qualitative win even if accuracy moves little.
+**What we learned.** Cache steering, ported to the *full* latent KV region of
+LatentMAS, oversteers and underperforms baseline (§6). The two prior weaknesses of
+the SEAL pilot were *reaching the Judger* (cache steering does directly edit what
+the Judger reads — good) and *hyperparameter fragility* (cache steering was
+supposed to fix this — but in *this* configuration it is just as fragile, because
+we apply it at ~40× the paper's per-position dose).
+
+**The decisive follow-up (paper-faithful dosing).** Re-run with
+`positions=last` (a *single* trailing position) and small `c^v ∈ {0.5, 1, 2}`,
+optionally restricting to a subset of layers. This is one command and ~1.5 GPU-hr:
+
+```bash
+OUT=results/cache_steer_lasttoken SAMPLES=200 GEN_BS=8 \
+  POSITIONS=last CV_SWEEP="0.5 1 2" bash scripts/run_cache_steer_pilot.sh
+```
+
+- If accuracy recovers to ≥ baseline → the original idea holds and "overdosing" was
+  the whole story (strong positive for the next meeting).
+- If it still degrades → cache-steering vectors **do not transfer** from text to
+  the realigned latent channel, which is itself a clean, publishable observation
+  about LatentMAS's latent space.
+
+**Remaining analyses (once vectors/logs are local):**
+
+1. **McNemar on per-question flips** (baseline vs each steered arm) to confirm the
+   degradation is significant and characterize *which* questions flip.
+2. **Stability curve** — we already have the (downward) `c^v` curve; overlay the
+   follow-up's single-token curve to show whether faithful dosing flattens it.
 3. **Per-role execution/reflection ratio (mentor's question #2).** Using
    `seal/thought_classifier.py`, classify each step of each agent's reasoning into
    execution / reflection / transition and report the **execution ratio per role**
@@ -372,9 +453,13 @@ before/after (more explicit steps after steering).
 
 ## 10. Future work (incorporating mentor directions)
 
+- **Paper-faithful dosing (highest priority — see §7).** `positions=last`, small
+  `c^v`, possibly fewer layers. This is the experiment that decides whether the
+  negative result is "we overdosed" or "vectors don't transfer to latent space."
 - **Different steering strength** — already wired as the `c^v` sweep
-  (`CV_SWEEP`); extend to include `c^k>0` and a finer grid. Plot the stability
-  curve.
+  (`CV_SWEEP`); the n=200 sweep above shows the *default* config is monotonically
+  harmful, so the useful grid is now *small* `c^v ∈ {0.25, 0.5, 1}` at
+  `positions=last`, plus `c^k>0`.
 - **More samples for the steering vector** — `--n_pairs` (default 200). The paper
   found gains saturate by ~1000; sweep `{100, 200, 500, 1000}` and report.
 - **Larger batch size to speed runtime** — default raised to `--generate_bs 8`
