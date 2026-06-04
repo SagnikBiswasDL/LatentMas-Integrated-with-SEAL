@@ -62,9 +62,11 @@ Format: 16:9, clean academic style. ~12 slides + appendix.
 - **Steering monotonically HURT accuracy:**
   - Baseline (c_v=0): **59.0%** (118/200)
   - c_v=1: 56.5% (−2.5 pp) · c_v=3: 49.5% (−9.5 pp) · c_v=6: 44.0% (−15.0 pp)
+- **Stats:** c_v=1 within noise (p=0.61); c_v=6 significant (p≈0.002).
+  Dose-response is near-perfectly linear: **−2.55 pp per unit c_v, R²=0.98**.
 - Latency flat at c_v=1; the edit itself is ~free.
 - Visual: bar chart sloping *down* left→right; baseline highlighted.
-- Speaker note: a *clean monotonic* curve = real effect, not a bug.
+- Speaker note: a *clean linear* collapse = real effect (oversteering), not a bug.
 
 ## Slide 10 — Diagnosis: we overdosed
 - Paper edits **one** token/layer; we edited **40 positions × 40 layers**

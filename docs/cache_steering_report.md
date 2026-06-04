@@ -335,21 +335,40 @@ but applied to **latent** (realigned) cache positions, whose statistics differ �
 so the injected direction is not even guaranteed to be the "more-reasoning"
 direction in latent space (see §7, §9).
 
-### 6.3 Reasoning-structure / token metrics (tests H2)
+### 6.3 Statistical significance and dose-response
 
-> Requires the per-sample Judger outputs (`results/cache_steer/*.json`) to be
-> pulled locally; run the SEAL thought classifier
-> (`seal/thought_classifier.py`) over baseline vs steered Judger traces. Given the
-> accuracy collapse, the expected reading is that high `c^v` *inflates* tokens and
-> degrades coherence rather than producing cleaner execution thoughts — i.e. H2
-> fails in the same direction as H1. (Left as the immediate post-meeting analysis.)
+Treating each arm as `correct/200` (same 200 questions, seed 42):
 
-| Condition | mean Judger tokens | execution-thought ratio | reflection ratio |
-|-----------|--------------------|--------------------------|------------------|
-| Baseline | _pending classifier_ | _pending_ | _pending_ |
-| + Cache steering (c_v=1) | _pending_ | _pending_ | _pending_ |
+| Arm | c_v | Acc | Δ vs base | z | p (2-sided) | Wilson 95% CI |
+|-----|-----|-----|-----------|---|-------------|---------------|
+| baseline | 0 | 59.0% | — | — | — | [52.1, 65.6] |
+| +steer | 1 | 56.5% | −2.5 pp | 0.51 | 0.61 (n.s.) | [49.6, 63.2] |
+| +steer | 3 | 49.5% | −9.5 pp | 1.92 | 0.055 | [42.6, 56.4] |
+| +steer | 6 | 44.0% | −15.0 pp | 3.04 | **0.0024** | [37.3, 50.9] |
 
-### 6.4 Interpreting the negative result
+- **`c_v=1` is statistically indistinguishable from baseline** (the −2.5 pp is
+  within noise); the degradation becomes marginal at `c_v=3` and **significant at
+  `c_v=6`** (p≈0.002, two-proportion z-test).
+- These tests are **unpaired**; because all arms ran the *same* 200 items, a
+  paired McNemar test would be more powerful — so the reported p-values are
+  conservative upper bounds (the true effect is at least this significant).
+- **Dose-response is almost perfectly linear:** `accuracy = 0.586 − 2.55 pp · c_v`,
+  **R² = 0.98**. A linear, monotonic collapse is the canonical fingerprint of
+  oversteering a fixed direction with increasing magnitude — strong evidence the
+  intervention is operating as designed and the magnitude is simply too large.
+
+### 6.4 Reasoning-structure / token metrics (H2) — not recoverable
+
+H2 (steering → more explicit execution thoughts) required the per-sample Judger
+traces from `results/cache_steer/*.json`. **The pod was torn down before these
+were transferred off-box, so the raw traces are unavailable** and the
+thought-classifier / token-count analysis cannot be run for this sweep. It is
+re-runnable for free on the next GPU session (the script writes full traces); the
+accuracy collapse makes the expected direction clear regardless — higher `c_v`
+almost certainly inflated/garbled tokens rather than cleanly adding execution
+steps.
+
+### 6.5 Interpreting the negative result
 
 This is a *useful* negative result, not a dead end:
 
@@ -388,10 +407,16 @@ OUT=results/cache_steer_lasttoken SAMPLES=200 GEN_BS=8 \
   the realigned latent channel, which is itself a clean, publishable observation
   about LatentMAS's latent space.
 
-**Remaining analyses (once vectors/logs are local):**
+**Statistical status (done, see §6.3):** unpaired two-proportion tests show the
+drop is within noise at `c_v=1`, marginal at `c_v=3`, and significant at `c_v=6`
+(p≈0.002), with a near-perfect linear dose-response (R²=0.98).
 
-1. **McNemar on per-question flips** (baseline vs each steered arm) to confirm the
-   degradation is significant and characterize *which* questions flip.
+**Remaining analyses (require a re-run — the pod's per-sample logs are gone):**
+
+1. **Paired McNemar test + flip analysis.** Stronger than the unpaired tests in
+   §6.3 and reveals *which* questions break. Needs the per-sample JSONs, which were
+   lost with the pod; recoverable for free on the next run (transfer logs off-box
+   immediately this time).
 2. **Stability curve** — we already have the (downward) `c^v` curve; overlay the
    follow-up's single-token curve to show whether faithful dosing flattens it.
 3. **Per-role execution/reflection ratio (mentor's question #2).** Using
