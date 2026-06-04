@@ -35,7 +35,7 @@ N_PAIRS="${N_PAIRS:-200}"
 N_ICL="${N_ICL:-5}"
 VECTOR_PATH="${VECTOR_PATH:-artifacts/cache_steer_vectors/qwen3-14b/${TASK}_kv.pt}"
 
-OUT="results/cache_steer"
+OUT="${OUT:-results/cache_steer}"
 mkdir -p "$OUT"
 
 if [[ -z "${TMUX:-}" && "${ALLOW_NO_TMUX:-0}" != "1" ]]; then
