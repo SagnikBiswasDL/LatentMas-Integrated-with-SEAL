@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Tuple
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from seal.hooks import SealSteering
+from cache_steering.steering import CacheSteering
 
 try:
     from vllm import LLM, SamplingParams
@@ -53,6 +54,18 @@ class ModelWrapper:
 
         # for ablation
         self.pre_aligned = None
+
+        # Cache steering operates on the shared latent KV cache (HF backend only).
+        self.cache_steer: Optional[CacheSteering] = None
+        if args and getattr(args, "use_cache_steer", False):
+            self.cache_steer = CacheSteering(
+                vector_path=args.cache_steer_vector_path,
+                c_k=getattr(args, "cache_steer_ck", 0.0),
+                c_v=getattr(args, "cache_steer_cv", 4.0),
+                positions=getattr(args, "cache_steer_positions", "last_n"),
+                last_n=getattr(args, "cache_steer_last_n", 40),
+            )
+
         self.seal: Optional[SealSteering] = None
         if args and getattr(args, "use_seal", False):
             seal_device = torch.device(getattr(args, "device2", device) if use_vllm else device)

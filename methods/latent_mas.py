@@ -169,6 +169,11 @@ class LatentMASMethod:
 
                 past_for_decoding = past_kv if self.latent_steps > 0 else None
 
+                # One-shot cache steering of the shared latent working memory
+                # (arXiv:2507.08799) before the Judger decodes.
+                if past_for_decoding is not None and getattr(self.model, "cache_steer", None) is not None:
+                    past_for_decoding = self.model.cache_steer.apply(past_for_decoding)
+
                 if self.args.think:
                         judger_prompts = [f"{prompt}<think>" for prompt in prompts]
                 else: 

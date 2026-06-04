@@ -124,10 +124,25 @@ def main():
     parser.add_argument("--seal_coef", type=float, default=1.0)
     parser.add_argument("--seal_mode", type=str, default="latent", choices=["latent", "text", "both"])
 
+    # Cache steering (one-shot KV-cache intervention on the shared latent memory)
+    parser.add_argument("--use_cache_steer", action="store_true", help="Enable cache steering of the LatentMAS latent KV cache (HF backend only)")
+    parser.add_argument("--cache_steer_vector_path", type=str, default="artifacts/cache_steer_vectors/qwen3-14b/gsm8k_kv.pt")
+    parser.add_argument("--cache_steer_ck", type=float, default=0.0, help="Key steering coefficient c_k")
+    parser.add_argument("--cache_steer_cv", type=float, default=4.0, help="Value steering coefficient c_v")
+    parser.add_argument("--cache_steer_positions", type=str, default="last_n", choices=["last", "last_n", "all"], help="Which cache positions to steer")
+    parser.add_argument("--cache_steer_last_n", type=int, default=40, help="When positions=last_n, how many trailing positions to steer")
+
     args = parser.parse_args()
 
     if args.use_seal and not os.path.isfile(args.seal_vector_path):
         raise FileNotFoundError(f"SEAL vector not found: {args.seal_vector_path}")
+
+    if args.use_cache_steer:
+        if not os.path.isfile(args.cache_steer_vector_path):
+            raise FileNotFoundError(f"Cache-steering vector not found: {args.cache_steer_vector_path}")
+        if args.use_vllm:
+            raise ValueError("Cache steering requires the HF backend (run without --use_vllm); "
+                             "the vLLM path does not expose the KV cache for modification.")
     
     if args.method == "latent_mas" and args.use_vllm:
         args.use_second_HF_model = True 
@@ -255,6 +270,11 @@ def main():
                 "seal_layer": getattr(args, "seal_layer", None),
                 "seal_coef": getattr(args, "seal_coef", None),
                 "seal_mode": getattr(args, "seal_mode", None),
+                "use_cache_steer": bool(getattr(args, "use_cache_steer", False)),
+                "cache_steer_ck": getattr(args, "cache_steer_ck", None),
+                "cache_steer_cv": getattr(args, "cache_steer_cv", None),
+                "cache_steer_positions": getattr(args, "cache_steer_positions", None),
+                "cache_steer_last_n": getattr(args, "cache_steer_last_n", None),
             },
             ensure_ascii=False,
         )
