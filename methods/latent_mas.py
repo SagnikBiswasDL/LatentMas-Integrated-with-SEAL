@@ -191,6 +191,13 @@ class LatentMASMethod:
                 for ids_row, mask_row in zip(judger_ids, judger_mask):
                     active_ids = ids_row[mask_row.bool()].tolist()
                     judger_tokens_batch.append(self.model.tokenizer.convert_ids_to_tokens(active_ids))
+
+                # SEAL steering of the Judger's *text* decode (seal_mode in {text, both}).
+                # A no-op for seal_mode=latent: set_text_mask returns early in that case.
+                seal = getattr(self.model, "seal", None)
+                if seal is not None:
+                    seal.set_text_mask(torch.ones(judger_ids.shape[0], dtype=torch.bool))
+
                 generated_batch, _ = self.model.generate_text_batch(
                     judger_ids,
                     judger_mask,
@@ -199,6 +206,9 @@ class LatentMASMethod:
                     top_p=self.top_p,
                     past_key_values=past_for_decoding,
                 )
+
+                if seal is not None:
+                    seal.set_text_mask(None)
                 for idx in range(batch_size):
                     final_text = generated_batch[idx].strip()
                     final_texts[idx] = final_text
